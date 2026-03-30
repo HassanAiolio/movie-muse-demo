@@ -5,8 +5,8 @@ Welcome to the Movie Recommendation Application! This application provides recom
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/HassanAiolio/ProjectST4
-cd ProjectST4
+git clone https://github.com/HassanAiolio/ProjectST4](https://github.com/HassanAiolio/movie-muse-demo.git
+cd movie-muse-demo
 ```
 
 ### 2. Install dependencies
