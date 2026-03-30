@@ -30,6 +30,16 @@ appDataSource
     app.use('/auth', authRouter);
     app.use('/genres', genresRouter);
 
+    // GET /health
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'ok' });
+    });
+
+    // HEAD /health (empty body, still returns 200)
+    app.head('/health', (req, res) => {
+      res.status(200).end();
+    });
+
     // Register 404 middleware and error handler
     app.use(routeNotFoundJsonHandler); // this middleware must be registered after all routes to handle 404 correctly
     app.use(jsonErrorHandler); // this error handler must be registered after all middleware to catch all errors
