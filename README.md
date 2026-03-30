@@ -3,6 +3,7 @@
 A movie recommendation web app built with React, TypeScript, and Node.js. Recommends films based on user ratings using cosine similarity.
 
 **Live demo:** [movie-muse-demo.vercel.app](https://movie-muse-demo.vercel.app/)  
+Demo credentials: `demo@moviemuse.app` / `demo1234`
 
 ---
 
