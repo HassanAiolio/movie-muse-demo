@@ -11,45 +11,54 @@ import { routeNotFoundJsonHandler } from './services/routeNotFoundJsonHandler.js
 import { jsonErrorHandler } from './services/jsonErrorHandler.js';
 import { appDataSource } from './datasource.js';
 
+const app = express();
+const port = parseInt(process.env.PORT || '8000');
+let dbReady = false;
+
+// ── Middleware ─────────────────────────
+app.use(logger('dev'));
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// ── Routes ─────────────────────────────
+app.use('/', indexRouter);
+app.use('/users', usersRouter);
+app.use('/movies', moviesRouter);
+app.use('/actors', actorsRouter);
+app.use('/auth', authRouter);
+app.use('/genres', genresRouter);
+
+// ── Health route ───────────────────────
+app.get('/health', (req, res) =>
+  res.status(200).json({ status: 'ok', dbConnected: dbReady })
+);
+app.head('/health', (req, res) => res.status(200).end());
+
+// ── 404 and error handler ──────────────
+app.use(routeNotFoundJsonHandler);
+app.use(jsonErrorHandler);
+
+// ── Start server immediately ───────────
+app.listen(port, () =>
+  console.log(`Server listening at http://localhost:${port}`)
+);
+
+// ── Initialize Neon DB asynchronously ──
 appDataSource
   .initialize()
   .then(() => {
     console.log('Data Source has been initialized!');
-    const app = express();
-
-    app.use(logger('dev'));
-    app.use(cors());
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: false }));
-
-    // Register routes
-    app.use('/', indexRouter);
-    app.use('/users', usersRouter);
-    app.use('/movies', moviesRouter);
-    app.use('/actors', actorsRouter);
-    app.use('/auth', authRouter);
-    app.use('/genres', genresRouter);
-
-    // GET /health
-    app.get('/health', (req, res) => {
-      res.status(200).json({ status: 'ok' });
-    });
-
-    // HEAD /health (empty body, still returns 200)
-    app.head('/health', (req, res) => {
-      res.status(200).end();
-    });
-
-    // Register 404 middleware and error handler
-    app.use(routeNotFoundJsonHandler); // this middleware must be registered after all routes to handle 404 correctly
-    app.use(jsonErrorHandler); // this error handler must be registered after all middleware to catch all errors
-
-    const port = parseInt(process.env.PORT || '8000');
-
-    app.listen(port, () => {
-      console.log(`Server listening at http://localhost:${port}`);
-    });
+    dbReady = true;
   })
   .catch((err) => {
     console.error('Error during Data Source initialization:', err);
   });
+
+// ── Optional: fail requests if DB not ready
+app.use((req, res, next) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'DB not ready' });
+  }
+  next();
+});
