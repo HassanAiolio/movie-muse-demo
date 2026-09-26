@@ -11,9 +11,11 @@ const MIN_PASSWORD_LENGTH = 8;
 export default function Signup() {
   const [formData, setFormData] = useState({ firstname: '', lastname: '', email: '', password: '' });
   const navigate = useNavigate();
+  // Checked once on mount: re-checking after sign-in would race the navigate() below.
+  const [alreadySignedIn] = useState(hasValidSession);
   const signupMutation = useSignup();
 
-  if (hasValidSession()) return <Navigate to="/home" replace />;
+  if (alreadySignedIn) return <Navigate to="/home" replace />;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
