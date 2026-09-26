@@ -1,155 +1,228 @@
 import express from 'express';
 import { appDataSource } from '../datasource.js';
-import User from '../entities/user.js';
-import Movie from '../entities/movies.js';
 import Rating from '../entities/rating.js';
+import User from '../entities/user.js';
+import Watchlist from '../entities/watchlist.js';
+import { requireAuth, toPublicUser } from '../lib/auth.js';
+import { parseId, route } from '../lib/http.js';
+import { getCatalog, toListItem } from '../services/catalog.js';
+import { DEMO_EMAIL } from './authRoutes.js';
 
 const router = express.Router();
 const userRepository = appDataSource.getRepository(User);
-const movieRepository = appDataSource.getRepository(Movie);
 const ratingRepository = appDataSource.getRepository(Rating);
+const watchlistRepository = appDataSource.getRepository(Watchlist);
 
-router.get('/', function (req, res) {
-  appDataSource
-    .getRepository(User)
-    .find({})
-    .then(function (users) {
-      res.json({ users: users });
-    });
-});
+// Every route here acts on the signed-in user only.
+router.use(requireAuth);
 
-router.get('/home/:id_user', async (req, res) => {
-  const userId = parseInt(req.params.id_user, 10);
+// `rate` is stored as text ("1" / "-1"); the API always speaks numbers.
+export async function ratingsOf(userId) {
+  const rows = await ratingRepository.find({ where: { id_user: userId } });
 
-  if (isNaN(userId)) {
-    return res.status(400).json({ message: 'Invalid user ID' });
-  }
+  return rows.map((row) => ({ id_movie: row.id_movie, rate: Number(row.rate) }));
+}
 
-  try {
-    const user = await userRepository.findOne({
-      where: { id_user: userId },
-    });
-
+router.get(
+  '/me',
+  route(async (req, res) => {
+    const user = await userRepository.findOneBy({ id_user: req.userId });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'Account not found' });
     }
+    res.json({ user: toPublicUser(user) });
+  })
+);
 
-    res.status(200).json({ message: `Welcome home, ${user.firstname}`, user });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Internal Server Error', details: err.message });
-  }
-});
-
-// Upsert rating — insert or update if already exists
-router.post('/ratings', async (req, res) => {
-  const { id_user, id_movie, rate } = req.body;
-
-  if (!id_user || !id_movie || !rate) {
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
-
-  try {
-    const user = await userRepository.findOne({ where: { id_user: id_user } });
-    const movie = await movieRepository.findOne({ where: { id_movie: id_movie } });
-
-    if (!user || !movie) {
-      return res.status(404).json({ message: 'User or movie not found' });
+router.delete(
+  '/me',
+  route(async (req, res) => {
+    const user = await userRepository.findOneBy({ id_user: req.userId });
+    if (!user) {
+      return res.status(404).json({ message: 'Account not found' });
     }
-
-    let rating = await ratingRepository.findOne({ where: { id_user, id_movie } });
-
-    if (rating) {
-      rating.rate = rate;
-    } else {
-      rating = ratingRepository.create({ id_user, id_movie, rate, user_rate: user, Movie_rate: movie });
+    if (user.email === DEMO_EMAIL) {
+      return res.status(403).json({ message: "The shared demo account can't be deleted." });
     }
-
-    await ratingRepository.save(rating);
-    res.status(201).json(rating);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Internal Server Error', details: err.message });
-  }
-});
-
-router.get('/rating/movie', async (req, res) => {
-  const { id_user, id_movie } = req.query;
-
-  if (!id_user || !id_movie) {
-    return res.status(400).json({ message: 'Missing user_id or id_movie' });
-  }
-
-  try {
-    const rating = await ratingRepository.findOne({
-      where: { id_user: parseInt(id_user), id_movie: parseInt(id_movie) },
+    await appDataSource.transaction(async (manager) => {
+      await manager.delete(Rating, { id_user: req.userId });
+      await manager.delete(Watchlist, { id_user: req.userId });
+      await manager.delete(User, { id_user: req.userId });
     });
+    res.status(204).end();
+  })
+);
 
-    if (!rating) {
-      return res.status(404).json({ message: 'Rating not found' });
+// ── Ratings ────────────────────────────
+
+router.get(
+  '/me/ratings',
+  route(async (req, res) => {
+    const { byId } = await getCatalog();
+    const ratings = await ratingsOf(req.userId);
+    res.json(
+      ratings
+        .filter((rating) => byId.has(rating.id_movie))
+        .map((rating) => toListItem(byId.get(rating.id_movie), { rate: rating.rate }))
+    );
+  })
+);
+
+router.get(
+  '/me/ratings/:movieId',
+  route(async (req, res) => {
+    const movieId = parseId(req.params.movieId);
+    if (!movieId) {
+      return res.status(400).json({ message: 'Invalid movie id' });
     }
+    const row = await ratingRepository.findOneBy({ id_user: req.userId, id_movie: movieId });
+    res.json({ rate: row ? Number(row.rate) : null });
+  })
+);
 
-    res.json(rating);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Internal Server Error', details: err.message });
-  }
-});
-
-router.delete('/ratings', async (req, res) => {
-  const { id_user, id_movie } = req.body;
-
-  if (!id_user || !id_movie) {
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
-
-  try {
-    const rating = await ratingRepository.findOne({ where: { id_user: id_user, id_movie: id_movie } });
-    if (!rating) {
-      return res.status(404).json({ message: 'Rating not found' });
+router.put(
+  '/me/ratings/:movieId',
+  route(async (req, res) => {
+    const movieId = parseId(req.params.movieId);
+    const rate = Number(req.body.rate);
+    if (!movieId || (rate !== 1 && rate !== -1)) {
+      return res.status(400).json({ message: 'Expected a movie id and a rate of 1 or -1' });
     }
+    const { byId } = await getCatalog();
+    if (!byId.has(movieId)) {
+      return res.status(404).json({ message: 'Movie not found' });
+    }
+    await ratingRepository.save({
+      id_user: req.userId,
+      id_movie: movieId,
+      rate: String(rate),
+      user_rate: { id_user: req.userId },
+      Movie_rate: { id_movie: movieId },
+    });
+    res.json({ id_movie: movieId, rate });
+  })
+);
 
-    await ratingRepository.remove(rating);
-    res.status(200).json({ message: 'Rating deleted successfully' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Internal Server Error', details: err.message });
+router.delete(
+  '/me/ratings/:movieId',
+  route(async (req, res) => {
+    const movieId = parseId(req.params.movieId);
+    if (!movieId) {
+      return res.status(400).json({ message: 'Invalid movie id' });
+    }
+    await ratingRepository.delete({ id_user: req.userId, id_movie: movieId });
+    res.status(204).end();
+  })
+);
+
+// ── Watchlist ──────────────────────────
+
+router.get(
+  '/me/watchlist',
+  route(async (req, res) => {
+    const { byId } = await getCatalog();
+    const rows = await watchlistRepository.find({
+      where: { id_user: req.userId },
+      order: { added_at: 'DESC' },
+    });
+    res.json(
+      rows
+        .filter((row) => byId.has(row.id_movie))
+        .map((row) => toListItem(byId.get(row.id_movie), { added_at: row.added_at }))
+    );
+  })
+);
+
+router.put(
+  '/me/watchlist/:movieId',
+  route(async (req, res) => {
+    const movieId = parseId(req.params.movieId);
+    const { byId } = await getCatalog();
+    if (!movieId || !byId.has(movieId)) {
+      return res.status(404).json({ message: 'Movie not found' });
+    }
+    const existing = await watchlistRepository.findOneBy({
+      id_user: req.userId,
+      id_movie: movieId,
+    });
+    if (!existing) {
+      await watchlistRepository.insert({ id_user: req.userId, id_movie: movieId });
+    }
+    res.status(existing ? 200 : 201).json({ id_movie: movieId, inWatchlist: true });
+  })
+);
+
+router.delete(
+  '/me/watchlist/:movieId',
+  route(async (req, res) => {
+    const movieId = parseId(req.params.movieId);
+    if (!movieId) {
+      return res.status(400).json({ message: 'Invalid movie id' });
+    }
+    await watchlistRepository.delete({ id_user: req.userId, id_movie: movieId });
+    res.status(204).end();
+  })
+);
+
+// ── Taste profile ──────────────────────
+
+function topCounts(items, limit) {
+  const counts = new Map();
+  for (const { key, label, image } of items) {
+    const current = counts.get(key) || { label, image, count: 0 };
+    current.count += 1;
+    counts.set(key, current);
   }
-});
 
-router.post('/new', function (req, res) {
-  const newUser = userRepository.create({
-    email: req.body.email,
-    firstname: req.body.firstname,
-    lastname: req.body.lastname,
-    password: req.body.password,
-  });
+  return [...counts.entries()]
+    .map(([key, value]) => ({ id: key, ...value }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit);
+}
 
-  userRepository
-    .save(newUser)
-    .then(function (savedUser) {
-      res.status(201).json({ message: 'User successfully created', id: savedUser.id });
-    })
-    .catch(function (error) {
-      console.error(error);
-      if (error.code === '23505') {
-        res.status(400).json({ message: `User with email "${newUser.email}" already exists` });
-      } else {
-        res.status(500).json({ message: 'Error while creating the user' });
-      }
+router.get(
+  '/me/stats',
+  route(async (req, res) => {
+    const { byId } = await getCatalog();
+    const ratings = await ratingsOf(req.userId);
+    const liked = ratings
+      .filter((rating) => rating.rate > 0 && byId.has(rating.id_movie))
+      .map((rating) => byId.get(rating.id_movie));
+    const watchlistCount = await watchlistRepository.countBy({ id_user: req.userId });
+
+    const genres = topCounts(
+      liked.flatMap((movie) =>
+        movie.genres.map((g) => ({ key: g.id_genre, label: g.genre_type }))
+      ),
+      8
+    );
+    const actors = topCounts(
+      liked.flatMap((movie) =>
+        movie.cast.map((a) => ({ key: a.id_actor, label: a.actor_name, image: a.image }))
+      ),
+      6
+    ).filter((actor) => actor.count > 1);
+    const decades = topCounts(
+      liked
+        .map((movie) => parseInt(movie.release_date.slice(0, 4), 10))
+        .filter((year) => !Number.isNaN(year))
+        .map((year) => {
+          const decade = Math.floor(year / 10) * 10;
+
+          return { key: decade, label: `${decade}s` };
+        }),
+      10
+    ).sort((a, b) => a.id - b.id);
+
+    res.json({
+      likes: liked.length,
+      dislikes: ratings.filter((rating) => rating.rate < 0).length,
+      watchlist: watchlistCount,
+      genres,
+      actors,
+      decades,
     });
-});
-
-router.delete('/:userId', function (req, res) {
-  appDataSource
-    .getRepository(User)
-    .delete({ id_user: req.params.userId })
-    .then(function () {
-      res.status(204).json({ message: 'User successfully deleted' });
-    })
-    .catch(function () {
-      res.status(500).json({ message: 'Error while deleting the user' });
-    });
-});
+  })
+);
 
 export default router;
