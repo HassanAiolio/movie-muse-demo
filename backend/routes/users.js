@@ -3,10 +3,9 @@ import { appDataSource } from '../datasource.js';
 import Rating from '../entities/rating.js';
 import User from '../entities/user.js';
 import Watchlist from '../entities/watchlist.js';
-import { requireAuth, toPublicUser } from '../lib/auth.js';
+import { isDemoUser, requireAuth, toPublicUser } from '../lib/auth.js';
 import { parseId, route } from '../lib/http.js';
 import { getCatalog, toListItem } from '../services/catalog.js';
-import { DEMO_EMAIL } from './authRoutes.js';
 
 const router = express.Router();
 const userRepository = appDataSource.getRepository(User);
@@ -41,7 +40,7 @@ router.delete(
     if (!user) {
       return res.status(404).json({ message: 'Account not found' });
     }
-    if (user.email === DEMO_EMAIL) {
+    if (isDemoUser(user)) {
       return res.status(403).json({ message: "The shared demo account can't be deleted." });
     }
     await appDataSource.transaction(async (manager) => {

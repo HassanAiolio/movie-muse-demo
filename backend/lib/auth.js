@@ -10,6 +10,13 @@ if (!process.env.JWT_SECRET) {
 
 const TOKEN_TTL = '7d';
 
+// The shared demo account: reset on every sign-in and never deletable.
+export const DEMO_EMAIL = (process.env.DEMO_EMAIL || 'demo@moviemuse.app').toLowerCase();
+
+export function isDemoUser(user) {
+  return Boolean(user) && String(user.email).toLowerCase() === DEMO_EMAIL;
+}
+
 export function signToken(userId) {
   return jwt.sign({ id: userId }, jwtSecret, { expiresIn: TOKEN_TTL });
 }
@@ -35,5 +42,6 @@ export function toPublicUser(user) {
     email: user.email,
     firstname: user.firstname,
     lastname: user.lastname,
+    is_demo: isDemoUser(user),
   };
 }

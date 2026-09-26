@@ -5,14 +5,13 @@ import { rateLimit } from 'express-rate-limit';
 import { appDataSource } from '../datasource.js';
 import Rating from '../entities/rating.js';
 import User from '../entities/user.js';
-import { requireAuth, signToken, toPublicUser } from '../lib/auth.js';
+import Watchlist from '../entities/watchlist.js';
+import { DEMO_EMAIL, isDemoUser, requireAuth, signToken, toPublicUser } from '../lib/auth.js';
 import { route } from '../lib/http.js';
-import { getCatalog } from '../services/catalog.js';
 
 const router = express.Router();
 const userRepository = appDataSource.getRepository(User);
 
-export const DEMO_EMAIL = process.env.DEMO_EMAIL || 'demo@moviemuse.app';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -28,6 +27,16 @@ router.use(
 
 function session(user) {
   return { token: signToken(user.id_user), user: toPublicUser(user) };
+}
+
+// Every visit to the demo starts from a blank slate so the onboarding picker
+// means something. The account is shared, so this also clears what the
+// previous visitor rated.
+async function resetDemo(user) {
+  await appDataSource.transaction(async (manager) => {
+    await manager.delete(Rating, { id_user: user.id_user });
+    await manager.delete(Watchlist, { id_user: user.id_user });
+  });
 }
 
 function findByEmail(email) {
@@ -82,12 +91,15 @@ router.post(
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
+    if (isDemoUser(user)) {
+      await resetDemo(user);
+    }
     res.json(session(user));
   })
 );
 
-// One-click demo: logs into the shared demo account, creating it (with a few
-// likes so recommendations aren't empty) if it doesn't exist yet.
+// One-click demo: signs into the shared demo account (created on first use)
+// with its ratings and watchlist cleared, so the visitor lands on the picker.
 router.post(
   '/demo',
   route(async (req, res) => {
@@ -101,19 +113,8 @@ router.post(
           password: await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10),
         })
       );
-      const { movies } = await getCatalog();
-      const favourites = [...movies]
-        .sort((a, b) => b.rating_tmdb - a.rating_tmdb)
-        .slice(0, 6)
-        .map((movie) => ({
-          id_user: user.id_user,
-          id_movie: movie.id_movie,
-          rate: '1',
-          user_rate: { id_user: user.id_user },
-          Movie_rate: { id_movie: movie.id_movie },
-        }));
-      await appDataSource.getRepository(Rating).save(favourites);
     }
+    await resetDemo(user);
     res.json(session(user));
   })
 );
