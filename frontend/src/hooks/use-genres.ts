@@ -6,8 +6,9 @@ export const useGenres = () => {
   return useQuery({
     queryKey: ['genres'],
     queryFn: async (): Promise<Genre[]> => {
-      const { data } = await api.get('/genres/');
+      const { data } = await api.get('/genres');
       return data;
-    }
+    },
+    staleTime: 10 * 60 * 1000,
   });
 };

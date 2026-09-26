@@ -1,34 +1,40 @@
 import { useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { clearSession, setSession, SessionUser } from '@/lib/session';
 
-export const useLogin = () => {
-  return useMutation({
-    mutationFn: async (credentials: Record<string, string>) => {
-      const { data } = await api.post('/auth/login', credentials);
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data.token) localStorage.setItem('token', data.token);
-      if (data.user?.id_user) localStorage.setItem('user_id', data.user.id_user.toString());
-    },
-  });
-};
+interface SessionResponse {
+  token: string;
+  user: SessionUser;
+}
 
-export const useSignup = () => {
+function useSessionMutation<TInput>(request: (input: TInput) => Promise<SessionResponse>) {
   return useMutation({
-    mutationFn: async (userData: Record<string, string>) => {
-      const { data } = await api.post('/auth/signup', userData);
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data.token) localStorage.setItem('token', data.token);
-      if (data.user?.id_user) localStorage.setItem('user_id', data.user.id_user.toString());
-    },
+    mutationFn: request,
+    onSuccess: (data) => setSession(data.token, data.user),
   });
-};
+}
+
+export const useLogin = () =>
+  useSessionMutation(async (credentials: { email: string; password: string }) => {
+    const { data } = await api.post<SessionResponse>('/auth/login', credentials);
+    return data;
+  });
+
+export const useSignup = () =>
+  useSessionMutation(
+    async (details: { email: string; password: string; firstname: string; lastname: string }) => {
+      const { data } = await api.post<SessionResponse>('/auth/signup', details);
+      return data;
+    }
+  );
+
+export const useDemoLogin = () =>
+  useSessionMutation(async (_: void) => {
+    const { data } = await api.post<SessionResponse>('/auth/demo');
+    return data;
+  });
 
 export const logout = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user_id');
+  clearSession();
   window.location.href = '/login';
 };

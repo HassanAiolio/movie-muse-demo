@@ -1,6 +1,7 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import { clearSession, getToken } from '@/lib/session';
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000/api';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -10,26 +11,36 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token && config.headers) {
+  const token = getToken();
+  if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-const TMDB_BASE = 'https://image.tmdb.org/t/p/w500';
-const TMDB_ORIGINAL = 'https://image.tmdb.org/t/p/original';
-
-api.interceptors.response.use((response) => {
-  if (Array.isArray(response.data)) {
-    response.data = response.data.map((item: any) => ({
-      ...item,
-      image: item.image ? `${TMDB_BASE}${item.image}` : item.image,
-    }));
-  } else if (response.data?.image) {
-    response.data.image = `${TMDB_ORIGINAL}${response.data.image}`;
+// An expired or revoked session sends the user back to the login page.
+api.interceptors.response.use(undefined, (error: AxiosError) => {
+  const isAuthCall = error.config?.url?.startsWith('/auth/');
+  if (error.response?.status === 401 && !isAuthCall) {
+    clearSession();
+    window.location.assign('/login?expired=1');
   }
-  return response;
+  return Promise.reject(error);
 });
+
+export function errorMessage(error: unknown, fallback = 'Something went wrong. Please try again.') {
+  if (axios.isAxiosError(error)) {
+    const message = (error.response?.data as { message?: string } | undefined)?.message;
+    if (message) return message;
+    if (!error.response) return 'Unable to reach the server. Check your connection and try again.';
+  }
+  return fallback;
+}
+
+type ImageSize = 'w185' | 'w300' | 'w500' | 'w780' | 'w1280' | 'original';
+
+export function tmdbImage(path: string | null | undefined, size: ImageSize = 'w500') {
+  return path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
+}
 
 export default api;

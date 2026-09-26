@@ -4,87 +4,113 @@ import { api } from '@/lib/api';
 export interface Genre {
   id_genre: number;
   genre_type: string;
-  name?: string; // alias for compatibility
+  count?: number;
 }
 
-export interface Movie {
+export interface CastMember {
+  id_actor: number;
+  actor_name: string;
+  image: string | null;
+}
+
+export interface Reason {
+  id_movie: number;
+  title: string;
+  shared: string[];
+}
+
+export interface MovieSummary {
   id_movie: number;
   title: string;
   release_date: string;
+  image: string | null;
+  backdrop: string | null;
+  rating_tmdb: number;
+  popularity: number | null;
+  genres: Genre[];
+  reason?: Reason | null;
+  shared?: string[];
+  rate?: 1 | -1;
+}
+
+export interface Movie extends MovieSummary {
   description: string;
-  trailer?: string;
-  image: string;
-  rating_tmdb: string | number;
-  movie_genre?: Genre[];
+  tagline: string | null;
+  trailer: string | null;
+  runtime: number | null;
+  vote_count: number | null;
+  cast: CastMember[];
 }
 
-export interface Actor {
-  id_actor?: number;
-  actor_name: string;
-  image: string;
+export interface Provider {
+  id: number;
+  name: string;
+  logo: string;
 }
 
-export const useMovies = () => {
-  const userId = localStorage.getItem('user_id');
-  
-  return useQuery({
-    queryKey: ['movies', 'home', userId],
-    queryFn: async (): Promise<Movie[]> => {
-      try {
-        if (userId) {
-          const { data } = await api.get(`/movies/recommend?id_user=${userId}`);
-          if (data && data.length > 0) return data;
-        }
-      } catch (err) {
-        console.warn('Recommendation failed, falling back to all movies', err);
-      }
-      const { data } = await api.get('/movies/');
-      return data;
-    }
+export interface Providers {
+  region: string;
+  configured?: boolean;
+  link: string | null;
+  flatrate: Provider[];
+  rent: Provider[];
+  buy: Provider[];
+}
+
+export interface ActorDetails extends CastMember {
+  movies: MovieSummary[];
+}
+
+async function get<T>(url: string, params?: Record<string, unknown>) {
+  return (await api.get<T>(url, { params })).data;
+}
+
+export const useCatalog = () =>
+  useQuery({
+    queryKey: ['catalog'],
+    queryFn: () => get<MovieSummary[]>('/movies'),
+    staleTime: 10 * 60 * 1000,
   });
-};
 
-export const useMovieDetails = (movieId: string | undefined) => {
-  return useQuery({
+export const useRecommendations = () =>
+  useQuery({
+    queryKey: ['recommendations'],
+    queryFn: () => get<MovieSummary[]>('/movies/recommend', { limit: 40 }),
+  });
+
+export const useSearch = (query: string) =>
+  useQuery({
+    queryKey: ['search', query],
+    queryFn: () => get<MovieSummary[]>('/movies/search', { q: query, limit: 60 }),
+    enabled: query.length >= 2,
+    placeholderData: (previous) => previous,
+  });
+
+export const useMovie = (movieId: string | undefined) =>
+  useQuery({
     queryKey: ['movie', movieId],
-    queryFn: async (): Promise<Movie> => {
-      const { data } = await api.get(`/movies/movie/?id_movie=${movieId}`);
-      return data;
-    },
-    enabled: !!movieId
+    queryFn: () => get<Movie>(`/movies/${movieId}`),
+    enabled: !!movieId,
   });
-};
 
-export const useMovieGenres = (movieId: string | undefined) => {
-  return useQuery({
-    queryKey: ['movie_genres', movieId],
-    queryFn: async (): Promise<Genre[]> => {
-      const { data } = await api.get(`/movies/genre/?id_movie=${movieId}`);
-      return data;
-    },
-    enabled: !!movieId
+export const useSimilar = (movieId: string | undefined) =>
+  useQuery({
+    queryKey: ['similar', movieId],
+    queryFn: () => get<MovieSummary[]>(`/movies/${movieId}/similar`, { limit: 12 }),
+    enabled: !!movieId,
   });
-};
 
-export const useMovieCast = (movieId: string | undefined) => {
-  return useQuery({
-    queryKey: ['movie_cast', movieId],
-    queryFn: async (): Promise<Actor[]> => {
-      const { data } = await api.get(`/movies/cast/?id_movie=${movieId}`);
-      return data;
-    },
-    enabled: !!movieId
+export const useProviders = (movieId: string | undefined, region = 'FR') =>
+  useQuery({
+    queryKey: ['providers', movieId, region],
+    queryFn: () => get<Providers>(`/movies/${movieId}/providers`, { region }),
+    enabled: !!movieId,
+    staleTime: 60 * 60 * 1000,
   });
-};
 
-export const useRecommendations = (userId: string | null) => {
-  return useQuery({
-    queryKey: ['movies', 'recommend', userId],
-    queryFn: async (): Promise<Movie[]> => {
-      if (!userId) return [];
-      const { data } = await api.get(`/movies/recommend?id_user=${userId}`);
-      return data;
-    },
-    enabled: !!userId
+export const useActor = (actorId: string | undefined) =>
+  useQuery({
+    queryKey: ['actor', actorId],
+    queryFn: () => get<ActorDetails>(`/actors/${actorId}`),
+    enabled: !!actorId,
   });
-};

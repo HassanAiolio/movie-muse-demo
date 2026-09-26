@@ -1,62 +1,39 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-interface RatingResponse {
-  rate: 1 | -1 | null;
-}
+export type Rate = 1 | -1;
 
-export const useUserRating = (movieId: string | undefined) => {
-  const userId = localStorage.getItem('user_id');
-  
-  return useQuery({
-    queryKey: ['rating', movieId, userId],
-    queryFn: async (): Promise<RatingResponse> => {
-      try {
-        const { data } = await api.get(`/users/rating/movie?id_movie=${movieId}&id_user=${userId}`);
-        return data;
-      } catch (err: any) {
-        if (err.response?.status === 404) return { rate: null };
-        throw err;
-      }
-    },
-    enabled: !!movieId && !!userId
+export const useUserRating = (movieId: string | undefined) =>
+  useQuery({
+    queryKey: ['rating', movieId],
+    queryFn: async (): Promise<{ rate: Rate | null }> =>
+      (await api.get(`/users/me/ratings/${movieId}`)).data,
+    enabled: !!movieId,
   });
-};
 
-export const useRateMovie = () => {
+// Sets, changes or clears (rate: null) a rating, updating the UI immediately.
+export const useSetRating = () => {
   const queryClient = useQueryClient();
-  const userId = localStorage.getItem('user_id');
 
   return useMutation({
-    mutationFn: async ({ movieId, rate }: { movieId: number, rate: 1 | -1 }) => {
-      const { data } = await api.post(`/users/ratings`, { id_user: userId, id_movie: movieId, rate });
-      return data;
+    mutationFn: async ({ movieId, rate }: { movieId: number; rate: Rate | null }) => {
+      if (rate === null) await api.delete(`/users/me/ratings/${movieId}`);
+      else await api.put(`/users/me/ratings/${movieId}`, { rate });
     },
-    onSuccess: (_, variables) => {
-      queryClient.setQueryData(
-        ['rating', variables.movieId.toString(), userId],
-        { rate: variables.rate }
-      );
-    }
-  });
-};
-
-export const useRemoveRating = () => {
-  const queryClient = useQueryClient();
-  const userId = localStorage.getItem('user_id');
-
-  return useMutation({
-    mutationFn: async ({ movieId }: { movieId: number }) => {
-      const { data } = await api.delete(`/users/ratings`, {
-        data: { id_user: userId, id_movie: movieId }
-      });
-      return data;
+    onMutate: async ({ movieId, rate }) => {
+      const key = ['rating', String(movieId)];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, { rate });
+      return { key, previous };
     },
-    onSuccess: (_, variables) => {
-      queryClient.setQueryData(
-        ['rating', variables.movieId.toString(), userId],
-        { rate: null }
-      );
-    }
+    onError: (_error, _variables, context) => {
+      if (context) queryClient.setQueryData(context.key, context.previous);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['recommendations'] });
+      queryClient.invalidateQueries({ queryKey: ['my-ratings'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
   });
 };
