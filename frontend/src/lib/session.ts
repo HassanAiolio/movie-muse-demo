@@ -3,6 +3,7 @@ export interface SessionUser {
   email: string;
   firstname: string;
   lastname: string;
+  is_demo?: boolean;
 }
 
 const TOKEN_KEY = 'token';
@@ -23,6 +24,11 @@ export function getUser(): SessionUser | null {
 export function setSession(token: string, user: SessionUser) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+// Sessions saved before `is_demo` existed only have the email to go on.
+export function isDemoSession(user: SessionUser | null = getUser()) {
+  return Boolean(user && (user.is_demo ?? user.email.toLowerCase() === 'demo@moviemuse.app'));
 }
 
 export function clearSession() {

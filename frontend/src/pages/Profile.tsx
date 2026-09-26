@@ -8,7 +8,7 @@ import { EmptyState, ErrorState } from '@/components/PageStates';
 import { CountItem, useDeleteAccount, useMyRatings, useStats } from '@/hooks/use-profile';
 import { logout } from '@/hooks/use-auth';
 import { errorMessage, tmdbImage } from '@/lib/api';
-import { getUser } from '@/lib/session';
+import { getUser, isDemoSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
 function StatTile({ icon, label, value, to }: { icon: React.ReactNode; label: string; value: number | undefined; to?: string }) {
@@ -57,14 +57,14 @@ function DangerZone() {
   const user = getUser();
   const deleteAccount = useDeleteAccount();
   const [confirming, setConfirming] = useState(false);
-  const isDemo = user?.email === 'demo@moviemuse.app';
+  const isDemo = isDemoSession(user);
 
   return (
     <section className="border border-red-500/30 rounded-2xl p-6 mt-16">
       <h2 className="text-xl text-foreground mb-2">Delete account</h2>
       <p className="text-sm text-muted mb-4">
         {isDemo
-          ? "This is the shared demo account, so it can't be deleted. Create your own account to keep your ratings."
+          ? "This is the shared demo account, so it can't be deleted. Its ratings reset every time someone starts the demo; create your own account to keep yours."
           : 'Permanently deletes your account, ratings and watchlist. This cannot be undone.'}
       </p>
       {!isDemo &&

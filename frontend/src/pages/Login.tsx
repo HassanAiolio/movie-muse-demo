@@ -4,12 +4,14 @@ import { Loader2, Sparkles } from 'lucide-react';
 import { useDemoLogin, useLogin } from '@/hooks/use-auth';
 import { AuthLayout, FormError, inputClass } from '@/components/AuthLayout';
 import { errorMessage } from '@/lib/api';
-import { hasValidSession } from '@/lib/session';
+import { hasValidSession, isDemoSession } from '@/lib/session';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
+  // Checked once on mount: re-checking after sign-in would race the navigate() below.
+  const [alreadySignedIn] = useState(hasValidSession);
   const location = useLocation();
   const [params] = useSearchParams();
   const loginMutation = useLogin();
@@ -17,14 +19,18 @@ export default function Login() {
 
   const destination = (location.state as { from?: string } | null)?.from || '/home';
 
-  if (hasValidSession()) return <Navigate to={destination} replace />;
+  if (alreadySignedIn) return <Navigate to={destination} replace />;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    loginMutation.mutate({ email, password }, { onSuccess: () => navigate(destination, { replace: true }) });
+    // The demo account is reset on every sign-in, so it always starts on the picker.
+    loginMutation.mutate(
+      { email, password },
+      { onSuccess: (data) => navigate(isDemoSession(data.user) ? '/first' : destination, { replace: true }) }
+    );
   };
 
-  const tryDemo = () => demoMutation.mutate(undefined, { onSuccess: () => navigate('/home', { replace: true }) });
+  const tryDemo = () => demoMutation.mutate(undefined, { onSuccess: () => navigate('/first', { replace: true }) });
 
   const busy = loginMutation.isPending || demoMutation.isPending;
   const error = loginMutation.isError

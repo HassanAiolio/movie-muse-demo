@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, ChevronRight, Film, Loader2, Search } from 'lucide-react';
-import { api, tmdbImage } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useCatalog } from '@/hooks/use-movies';
 import { useGenres } from '@/hooks/use-genres';
 import { ServerWakeNotice } from '@/components/PageStates';
+import { Poster } from '@/components/Poster';
+import { isDemoSession } from '@/lib/session';
 
 const MIN_SELECTIONS = 3;
 
@@ -100,6 +102,11 @@ export default function First() {
         <p className="text-muted text-base sm:text-lg max-w-lg mx-auto">
           Select at least {MIN_SELECTIONS} posters — we'll use them to personalise your recommendations.
         </p>
+        {isDemoSession() && (
+          <p className="mt-4 inline-block px-4 py-2 rounded-full border border-primary/30 bg-primary/5 text-sm text-foreground/80">
+            You're on the shared demo account: it starts fresh for every visitor.
+          </p>
+        )}
       </motion.div>
 
       {/* Search + Genre filters */}
@@ -184,11 +191,11 @@ export default function First() {
                     }
                   `}
                 >
-                  <img
-                    src={tmdbImage(movie.image, 'w300') ?? undefined}
-                    alt={movie.title}
-                    loading="lazy"
-                    className={`w-full h-full object-cover transition-all duration-500 ${
+                  <Poster
+                    path={movie.image}
+                    title={movie.title}
+                    size="w300"
+                    className={`w-full h-full transition-all duration-500 ${
                       isActive ? 'grayscale-0 brightness-100' : 'grayscale brightness-75 hover:grayscale-0 hover:brightness-100'
                     }`}
                   />
