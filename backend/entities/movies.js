@@ -18,6 +18,7 @@ const Movie = new typeorm.EntitySchema({
     },
     trailer: {
       type: String,
+      nullable: true,
     },
     image: {
       type: String,
@@ -25,6 +26,12 @@ const Movie = new typeorm.EntitySchema({
     rating_tmdb: {
       type: String,
     },
+    // Added by the TMDB sync; nullable so existing rows stay valid.
+    backdrop: { type: String, nullable: true },
+    tagline: { type: String, nullable: true },
+    runtime: { type: 'int', nullable: true },
+    popularity: { type: 'double precision', nullable: true },
+    vote_count: { type: 'int', nullable: true },
   },
   relations: {
     movie_genre: {
