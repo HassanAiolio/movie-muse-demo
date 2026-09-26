@@ -10,13 +10,13 @@ interface GenrePillProps {
 export function GenrePill({ name, isActive, onClick }: GenrePillProps) {
   return (
     <motion.button
-      whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
       onClick={onClick}
+      aria-pressed={isActive}
       className={cn(
         "shrink-0 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 border",
-        isActive 
-          ? "bg-primary text-background border-primary shadow-lg shadow-primary/20" 
+        isActive
+          ? "bg-primary text-background border-primary shadow-lg shadow-primary/20"
           : "bg-secondary text-muted border-border hover:border-primary/50 hover:text-foreground"
       )}
     >

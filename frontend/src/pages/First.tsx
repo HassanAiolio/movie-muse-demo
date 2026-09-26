@@ -1,17 +1,19 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, ChevronRight, Film, Loader2, Search } from 'lucide-react';
-import { api } from '@/lib/api';
-import { Movie } from '@/hooks/use-movies';
+import { api, tmdbImage } from '@/lib/api';
+import { useCatalog } from '@/hooks/use-movies';
 import { useGenres } from '@/hooks/use-genres';
+import { ServerWakeNotice } from '@/components/PageStates';
 
 const MIN_SELECTIONS = 3;
 
 export default function First() {
   const navigate = useNavigate();
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: catalog, isLoading } = useCatalog();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,12 +21,11 @@ export default function First() {
 
   const { data: genres } = useGenres();
 
-  useEffect(() => {
-    api.get('/movies/')
-      .then(({ data }) => setMovies(data || []))
-      .catch(() => setMovies([]))
-      .finally(() => setIsLoading(false));
-  }, []);
+  // Best-known films first: easier to find a few you've seen.
+  const movies = useMemo(
+    () => [...(catalog ?? [])].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0) || b.rating_tmdb - a.rating_tmdb),
+    [catalog]
+  );
 
   const filteredMovies = useMemo(() => {
     return movies.filter(movie => {
@@ -33,7 +34,7 @@ export default function First() {
       const matchesGenres =
         selectedGenres.length === 0 ||
         selectedGenres.every(genreId =>
-          movie.movie_genre?.some(mg => Number(mg.id_genre) === Number(genreId))
+          movie.genres.some(g => g.id_genre === genreId)
         );
       return matchesSearch && matchesGenres;
     });
@@ -55,17 +56,11 @@ export default function First() {
   };
 
   const handleStart = async () => {
-    const userId = localStorage.getItem('user_id');
     setIsSaving(true);
-
-    if (userId && selected.size > 0) {
-      const calls = Array.from(selected).map(id_movie =>
-        api.post('/users/ratings', { id_user: Number(userId), id_movie, rate: 1 })
-          .catch(() => {})
-      );
-      await Promise.allSettled(calls);
-    }
-
+    await Promise.allSettled(
+      Array.from(selected).map(id => api.put(`/users/me/ratings/${id}`, { rate: 1 }))
+    );
+    queryClient.invalidateQueries({ queryKey: ['recommendations'] });
     navigate('/home');
   };
 
@@ -117,27 +112,29 @@ export default function First() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by title..."
+            aria-label="Search films by title"
             className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-xl text-foreground text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
           />
         </div>
 
         {/* Genre pills */}
         {genres && genres.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {genres.map(genre => {
-              const isActive = selectedGenres.includes(Number(genre.id_genre));
+              const isActive = selectedGenres.includes(genre.id_genre);
               return (
                 <motion.button
                   key={genre.id_genre}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => toggleGenre(Number(genre.id_genre))}
+                  onClick={() => toggleGenre(genre.id_genre)}
+                  aria-pressed={isActive}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 border ${
                     isActive
                       ? 'bg-primary text-background border-primary'
                       : 'bg-transparent text-foreground border-border hover:border-primary hover:text-primary'
                   }`}
                 >
-                  {genre.genre_type || genre.name}
+                  {genre.genre_type}
                 </motion.button>
               );
             })}
@@ -147,6 +144,7 @@ export default function First() {
 
       {/* Poster grid */}
       <div className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 pb-36">
+        <div className="max-w-2xl mx-auto"><ServerWakeNotice loading={isLoading} /></div>
         {isLoading ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-2 sm:gap-3">
             {Array.from({ length: 28 }).map((_, i) => (
@@ -171,6 +169,8 @@ export default function First() {
                 <motion.button
                   key={movie.id_movie}
                   onClick={() => toggle(movie.id_movie)}
+                  aria-pressed={isActive}
+                  aria-label={movie.title}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3, delay: Math.min(idx * 0.015, 0.5) }}
@@ -185,7 +185,7 @@ export default function First() {
                   `}
                 >
                   <img
-                    src={movie.image || `https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300&h=450&fit=crop&q=70`}
+                    src={tmdbImage(movie.image, 'w300') ?? undefined}
                     alt={movie.title}
                     loading="lazy"
                     className={`w-full h-full object-cover transition-all duration-500 ${
